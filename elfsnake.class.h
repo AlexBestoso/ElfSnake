@@ -141,6 +141,18 @@ class ElfShdr{
                	int entsize(void){
 			return this->class32 ? (int)this->header32->sh_entsize : (int)this->header64->sh_entsize;
 		}
+
+		Elf64_Shdr *header_64(void){
+                        return this->header64;
+                }
+
+                Elf32_Shdr *header_32(void){
+                        return this->header32;
+                }
+
+                void *header(void){
+                        return class32 ? (void*)header32 : (void*)header64;
+                }
 };
 
 class ElfPhdr{
@@ -317,14 +329,17 @@ class ElfSnake{
 		 * User Functions
 		 * */
 		int getSectionDataSize(int idx){
-			return class32 ? ((Elf32_Shdr*)this->getSectionHeader(idx))->sh_size : ((Elf64_Shdr *)this->getSectionHeader(idx))->sh_size;
+			this->shdr.setIndex(idx);
+			return this->shdr.size();
 		}
 
 		int getSectionDataOffset(int idx){
-			return class32 ? ((Elf32_Shdr*)this->getSectionHeader(idx))->sh_offset : ((Elf64_Shdr *)this->getSectionHeader(idx))->sh_offset;
+			this->shdr.setIndex(idx);
+			return this->shdr.offset();
 		}
 		uint8_t *getSectionData(int idx){
-			return (uint8_t *)&this->_fileData[this->getSectionDataOffset(idx)];
+			this->shdr.setIndex(idx);
+			return (uint8_t *)&this->_fileData[this->shdr.offset()];
 		}
 		int getProgramHeaderCount(void){
 			return (int)this->ehdr.phnum();
@@ -372,11 +387,8 @@ class ElfSnake{
 		 * Must be type casted relative to elf archetecture. 
 		 */
 		void *getSectionHeader(int idx){
-			void *ret = NULL;
-			long int initalOffset = (long int)this->ehdr.shoff();
-			long int cellSize = (long int)this->ehdr.shentsize();
-			ret = (void *)&this->_fileData[initalOffset + (cellSize * idx)];
-			return ret;
+			this->shdr.setIndex(idx);
+			return this->shdr.header();
 		}
 	
 		void printProgramHeader(int idx){
@@ -395,40 +407,21 @@ class ElfSnake{
 		}
 
 		void printSectionHeader(int idx, bool printHeader){
-			printf("\n");
-			if(elfIs32()){
-				if(printHeader)
+			this->shdr.setIndex(idx);
+			if(printHeader)
 				printf("Name | Type | Flags | Address | Offset | Size | Link | Info | Alignment | Entity Size\n");
-				Elf32_Shdr *sheader = (Elf32_Shdr *)getSectionHeader(idx);
-				printf("%s\t%s\t%s\t%lx\t%lx\t%lx\t%lx\t%lx\t%lx\t%lx\t",
-					getSectionName(idx).c_str(),
-               				getSectionType(idx).c_str(),
-               				getSectionFlag(idx).c_str(),
-               				(long)sheader->sh_addr,
-               				(long)sheader->sh_offset,
-               				(long)sheader->sh_size,
-               				(long)sheader->sh_link,
-               				(long)sheader->sh_info,
-               				(long)sheader->sh_addralign,
-               				(long)sheader->sh_entsize
-				);
-			}else{
-				if(printHeader)
-				printf("Name | Type | Flags | Address | Offset | Size | Link | Info | Alignment | Entity Size\n");
-				Elf64_Shdr *sheader = (Elf64_Shdr *)getSectionHeader(idx);
-				printf("%s\t%s\t%s\t%lx\t%lx\t%lx\t%lx\t%lx\t%lx\t%lx\t",
-					getSectionName(idx).c_str(),
-               				getSectionType(idx).c_str(),
-               				getSectionFlag(idx).c_str(),
-               				(long)sheader->sh_addr,
-               				(long)sheader->sh_offset,
-               				(long)sheader->sh_size,
-               				(long)sheader->sh_link,
-               				(long)sheader->sh_info,
-               				(long)sheader->sh_addralign,
-               				(long)sheader->sh_entsize
-				);
-			}
+			printf("%s\t%s\t%s\t%lx\t%lx\t%lx\t%lx\t%lx\t%lx\t%lx\n",
+				getSectionName(idx).c_str(),
+               			getSectionType(idx).c_str(),
+               			getSectionFlag(idx).c_str(),
+               			(long)this->shdr.addr(),
+               			(long)this->shdr.offset(),
+               			(long)this->shdr.size(),
+               			(long)this->shdr.link(),
+               			(long)this->shdr.info(),
+               			(long)this->shdr.addralign(),
+               			(long)this->shdr.entsize()
+			);
 		}
 
 		std::string getFileType(void){
@@ -501,7 +494,8 @@ class ElfSnake{
 		}
 
 		std::string getSectionFlag(int idx){
-			long int ctx = class32 ? ((Elf32_Shdr *)this->getSectionHeader(idx))->sh_flags : ((Elf64_Shdr *)this->getSectionHeader(idx))->sh_flags;
+			this->shdr.setIndex(idx);
+			long int ctx = this->shdr.flags();
 			std::string ret = "";
 			if((ctx&SHF_WRITE) == SHF_WRITE) ret += "W";
 			if((ctx&SHF_ALLOC) == SHF_ALLOC) ret += "A";
@@ -511,7 +505,8 @@ class ElfSnake{
 			return ret;	
 		}
 		std::string getSectionType(int idx){
-			long int ctx = class32 ? ((Elf32_Shdr *)this->getSectionHeader(idx))->sh_type : ((Elf64_Shdr *)this->getSectionHeader(idx))->sh_type;
+			this->shdr.setIndex(idx);
+			int ctx = this->shdr.type();
 			switch(ctx){
 				case SHT_NULL:
 					return "NULL";
@@ -582,9 +577,9 @@ class ElfSnake{
 		}
 
 		std::string getSectionName(int idx){
-			int nameIdx = elfIs32() ? (int)((Elf32_Shdr *)getSectionHeader(idx))->sh_name : (int)((Elf64_Shdr *)getSectionHeader(idx))->sh_name;
-			const char * retc = (const char *)&this->_stringTable[nameIdx];
-			std::string ret = retc;
+			this->shdr.setIndex(idx);
+			int nameIdx = this->shdr.name();
+			std::string ret = (const char *)&this->_stringTable[nameIdx];
 			return ret;
 		}
 
